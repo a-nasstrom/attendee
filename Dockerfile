@@ -48,11 +48,12 @@ RUN apt-get update  \
 
 # Install Chrome dependencies
 RUN apt-get install -y xvfb x11-xkb-utils xfonts-100dpi xfonts-75dpi xfonts-scalable xfonts-cyrillic x11-apps libvulkan1 fonts-liberation xdg-utils wget
-RUN wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-RUN apt-get install -y ./google-chrome-stable_current_amd64.deb
+# Install a specific version of Chrome.
+RUN wget -q http://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_134.0.6998.88-1_amd64.deb
+RUN apt-get install -y ./google-chrome-stable_134.0.6998.88-1_amd64.deb
 
 # Install ALSA
-RUN apt-get install -y libasound2 libasound2-plugins alsa alsa-utils alsa-oss
+RUN apt-get update && apt-get install -y libasound2 libasound2-plugins alsa alsa-utils alsa-oss
 
 # Install Pulseaudio
 RUN apt-get install -y  pulseaudio pulseaudio-utils ffmpeg
@@ -60,11 +61,29 @@ RUN apt-get install -y  pulseaudio pulseaudio-utils ffmpeg
 # Install Linux Kernel Dev
 RUN apt-get update && apt-get install -y linux-libc-dev
 
+# Update certificates
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-ca-certificates
+
 # Install Ctags
 RUN apt-get update && apt-get install -y universal-ctags
 
+# Install xterm
+RUN apt-get update && apt-get install -y xterm
+
+# Install xmlsec1
+RUN apt-get update && apt-get install -y xmlsec1
+
+# Install xclip
+RUN apt-get update && apt-get install -y xclip
+
 # Install python dependencies
-RUN pip install pyjwt cython gdown deepgram-sdk python-dotenv
+RUN pip install pyjwt cython gdown python-dotenv
+
+# Install libavdevice-dev. Needed so that webpage streaming using pyav will work.
+RUN apt-get update && apt-get install -y libavdevice-dev && pip uninstall -y av && pip install --no-binary av "av==12.0.0"
 
 # Install gstreamer
 RUN apt-get install -y gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgirepository1.0-dev --fix-missing
@@ -78,21 +97,32 @@ FROM base AS deps
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-ENV TINI_VERSION v0.19.0
+ENV TINI_VERSION=v0.19.0
 ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini
 RUN chmod +x /tini
-
-# Used to deal w gstreamer crash under RTMP: See https://april.dev/2021/01/02/gstreamer-segfaulting-randomly.html
-# This is a workaround to avoid the crash by disabling libproxy. When we can upgrade to Ubuntu 24.04, we can remove this. 
-# The root cause is libproxy. The version in Ubuntu 22.04 is bad but the version in Ubuntu 24.04 is good.
-ENV NO_PROXY=-
 
 WORKDIR /opt
 
 FROM deps AS build
 
+# Create non-root user
+RUN useradd -m -u 1000 -s /bin/bash app
+
+# Workdir owned by app in one shot during copy
+ENV project=attendee
+ENV cwd=/$project
 WORKDIR $cwd
-COPY . .
 
-CMD ["/bin/bash"]
+# Copy only what you need; set ownership/perm at copy time
+COPY --chown=app:app --chmod=0755 entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY --chown=app:app . .
 
+# Make STATIC_ROOT writeable for the non-root user so collectstatic can run at startup
+RUN mkdir -p "$cwd/staticfiles" && chown -R app:app "$cwd/staticfiles"
+
+# Switch to non-root AFTER copies to avoid permission flakiness
+USER app
+
+# Use tini + entrypoint; CMD can be overridden by compose
+ENTRYPOINT ["/tini","--","/usr/local/bin/entrypoint.sh"]
+CMD ["bash"]

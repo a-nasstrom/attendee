@@ -14,25 +14,57 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
-from django.contrib import admin
-from django.urls import path, include
-from accounts import views
+
+import os
+
 from django.conf import settings
-from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from django.contrib import admin
+from django.http import HttpResponse
+from django.urls import include, path
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
+
+from accounts import views
+
+
+def health_check(request):
+    return HttpResponse(status=200)
+
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('accounts/', include('allauth.urls')),
-    path('accounts/', include('allauth.socialaccount.urls')),
-    path('', views.home, name='home'),
-    path('projects/', include('bots.projects_urls', namespace='projects')),
-    path('api/v1/', include('bots.bots_api_urls')),
+    path("health/", health_check, name="health-check"),
+]
+
+if not os.environ.get("DISABLE_ADMIN"):
+    urlpatterns.append(path("admin/", admin.site.urls))
+
+urlpatterns += [
+    path("accounts/", include("allauth.urls")),
+    path("accounts/", include("allauth.socialaccount.urls")),
+    path("external_webhooks/", include("bots.external_webhooks_urls")),
+    path("bot_sso/", include("bots.bot_sso_urls", namespace="bot_sso")),
+    path("", views.home, name="home"),
+    path("projects/", include("bots.projects_urls", namespace="projects")),
+    path("api/v1/", include("bots.calendars_api_urls")),
+    path("api/v1/", include("bots.zoom_oauth_connections_api_urls")),
+    path("api/v1/", include("bots.bots_api_urls")),
 ]
 
 if settings.DEBUG:
     # API docs routes - only available in development
     urlpatterns += [
-        path('schema/', SpectacularAPIView.as_view(), name='schema'),
-        path('schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
-        path('schema/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+        path("schema/", SpectacularAPIView.as_view(), name="schema"),
+        path(
+            "schema/swagger-ui/",
+            SpectacularSwaggerView.as_view(url_name="schema"),
+            name="swagger-ui",
+        ),
+        path(
+            "schema/redoc/",
+            SpectacularRedocView.as_view(url_name="schema"),
+            name="redoc",
+        ),
     ]
